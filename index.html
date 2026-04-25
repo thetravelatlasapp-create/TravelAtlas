@@ -143,6 +143,31 @@ async function askAI(prompt,system){
   return data.content[0].text;
  }catch(e){console.error('AI error:',e);throw e;}
 }
+function parseAIJson(text){
+ try{
+  const fenced=text.match(/```json\s*([\s\S]*?)\s*```/i);
+  if(fenced)return JSON.parse(fenced[1].trim());
+
+  const startObj=text.indexOf("{");
+  const startArr=text.indexOf("[");
+  let start=-1;
+  if(startObj===-1)start=startArr;
+  else if(startArr===-1)start=startObj;
+  else start=Math.min(startObj,startArr);
+
+  if(start!==-1){
+   const endObj=text.lastIndexOf("}");
+   const endArr=text.lastIndexOf("]");
+   const end=Math.max(endObj,endArr);
+   if(end>start)return JSON.parse(text.slice(start,end+1).trim());
+  }
+
+  return JSON.parse(text.trim());
+ }catch(e){
+  console.error("Claude returned invalid JSON:", text);
+  throw new Error("Claude returned invalid JSON");
+ }
+}
 
 // GRADIENTS (monochrome) 
 const GRAD={default:"linear-gradient(135deg,#0a0a0a,#111 50%,#050505)"};
@@ -1403,10 +1428,9 @@ Suggest 5 perfect destination recommendations. Return ONLY a JSON array:
 [{"n":"City, Country","co":"Country","cont":"Continent","why":"3 sentence personalized reason why this fits this traveler","bestTime":"e.g. Mar-May","accom":"e.g. Boutique hotels","food":"Signature dish","flight":650,"vibes":["cultural","adventure"],"styles":["solo"]}]
 Make recommendations genuinely personalized to the traveler profile. Avoid destinations already visited.`;
   try{
-   const text=await askAI(prompt,"You are a world-class travel advisor. Return only JSON.");
+   const text=await askAI(prompt,"You are a world-class travel advisor. Return only valid JSON. No markdown. No explanation. Output must be parseable by JSON.parse.");
    if(text){
-    const clean=text.replace(/```json|```/g,"").trim();
-    const parsed=JSON.parse(clean);
+    const parsed=parseAIJson(text);
     setAiResults(parsed);
    }
   }catch(e){
@@ -1562,7 +1586,7 @@ function PackingListSection({trip}){
  const generateList=async()=>{
   setLoading(true);
   const days=diffDays(trip.start,trip.end)||7;
-  const prompt=`You are a smart travel packing assistant. Generate a context-aware packing list for this trip:
+  const text=await askAI(prompt,"You are a travel itinerary expert. Return only valid JSON. No markdown. No explanation. Output must be parseable by JSON.parse.");
 Destination: ${trip.dest}
 Duration: ${days} days
 Trip type: ${trip.type||"leisure"}
@@ -1577,8 +1601,7 @@ Generate 25-35 practical, specific items tailored to the destination and trip ty
   try{
    const text=await askAI(prompt,"You are a smart travel packing assistant. Return only JSON.");
    if(!text)throw new Error("AI unavailable");
-   const clean=text.replace(/```json|```/g,"").trim();
-   const parsed=JSON.parse(clean);
+   const parsed=parseAIJson(text);
    const withState=parsed.map((it,i)=>({...it,id:Date.now()+i,checked:false}));
    setItems(withState);
   }catch(e){
@@ -1704,8 +1727,7 @@ Make activities specific to ${trip.dest} with real landmark and food names.`;
   try{
    const text=await askAI(prompt,"You are a travel itinerary expert. Return only JSON.");
    if(!text)return;
-   const clean=text.replace(/```json|```/g,"").trim();
-   const parsed=JSON.parse(clean);
+   const parsed=parseAIJson(text);
    const acts=parsed.map((a,i)=>({id:`${dayIdx}-${a.slot||i}`,time:a.time,slot:a.slot,name:a.name,desc:a.desc,status:"pending"}));
    setEvents(ev=>({...ev,[dayIdx]:acts}));
   }catch(e){console.error("Activity AI error:",e);}
